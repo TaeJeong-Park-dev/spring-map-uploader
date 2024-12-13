@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>지도 뷰어</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        #map-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+            background: #f0f0f0;
+        }
+
+        #tile-container {
+            position: absolute;
+            transform-origin: top left;
+        }
+
+        .map-tile {
+            position: absolute;
+            width: 120px;
+            height: 348px;
+        }
+
+        .map-tile img {
+            width: 120px;
+            height: 348px;
+            display: block;
+            object-fit: none;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+        }
+
+        .coordinates {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 5px 10px;
+            border-radius: 3px;
+            z-index: 1000;
+            font-family: Arial, sans-serif;
+        }
+
+        .controls {
+            position: fixed;
+            left: 50%;
+            bottom: 60px;
+            transform: translateX(-50%);
+            z-index: 1000;
+            background: white;
+            padding: 5px;
+            border-radius: 3px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+
+        .zoom-controls {
+            position: fixed;
+            right: 20px;
+            bottom: 60px;
+            z-index: 1000;
+            background: white;
+            padding: 5px;
+            border-radius: 3px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+
+        .logout-btn {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            padding: 5px 20px;
+        }
+
+        button {
+            margin: 2px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+
+        .map-tile.loaded {
+            opacity: 1;
+        }
+        .map-tile.error {
+            background-color: #ffeeee;
+        }
+        .map-tile {
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+    </style>
+</head>
+<body>
+    <div id="map-container">
+        <div id="tile-container"></div>
+        
+        <div class="controls">
+            <div style="text-align: center;">
+                <button onclick="move('up')">↑</button>
+            </div>
+            <div>
+                <button onclick="move('left')">←</button>
+                <button onclick="move('right')">→</button>
+            </div>
+            <div style="text-align: center;">
+                <button onclick="move('down')">↓</button>
+            </div>
+        </div>
+
+        <div class="zoom-controls">
+            <button onclick="zoomIn()">[zoom-in]</button>
+            <button onclick="zoomOut()">[zoom-out]</button>
+        </div>
+
+        <button class="logout-btn" onclick="location.href='/logout'">Logout</button>
+    </div>
+
+    <script>
+        // 상수 정의
+        const TILE_WIDTH = 120;
+        const TILE_HEIGHT = 348;
+        const MAX_TILES = 100;
+        const MIN_SCALE = 0.5;
+        const MAX_SCALE = 2.0;
+        const ZOOM_FACTOR = 1.2;
+
+        let scale = 1;
+        let offsetX = 0;
+        let offsetY = 0;
+
+        const mapContainer = document.getElementById('map-container');
+        const tileContainer = document.getElementById('tile-container');
+
+        const tileCache = new Map();
+
+        function updateMap() {
+            constrainOffset();
+            
+            tileContainer.innerHTML = '';
+            tileContainer.style.transform = `scale(${scale})`;
+
+            // 현재 화면에 보이는 영역 계산
+            const viewportLeft = offsetX / scale;
+            const viewportTop = offsetY / scale;
+            const viewportRight = viewportLeft + (window.innerWidth / scale);
+            const viewportBottom = viewportTop + (window.innerHeight / scale);
+
+            // 타일 인덱스 계산
+            const startTileX = Math.max(0, Math.floor(viewportLeft / TILE_WIDTH) - 2);
+            const startTileY = Math.max(0, Math.floor(viewportTop / TILE_HEIGHT) - 2);
+            const endTileX = Math.min(MAX_TILES, Math.ceil(viewportRight / TILE_WIDTH) + 2);
+            const endTileY = Math.min(MAX_TILES, Math.ceil(viewportBottom / TILE_HEIGHT) + 2);
+
+            console.log(`Scale: ${scale.toFixed(2)}, View: (${startTileX},${startTileY}) to (${endTileX},${endTileY})`);
+
+            // 타일 생성 및 배치
+            for (let y = startTileY; y < endTileY; y++) {
+                for (let x = startTileX; x < endTileX; x++) {
+                    const tile = document.createElement('div');
+                    tile.className = 'map-tile';
+                    tile.style.left = `${x * TILE_WIDTH}px`;
+                    tile.style.top = `${y * TILE_HEIGHT}px`;
+
+                    const img = document.createElement('img');
+                    img.src = `/map_tile_data/tile_${y}_${x}.png`;
+                    img.setAttribute('data-y', y);
+                    img.setAttribute('data-x', x);
+                    
+                    tile.appendChild(img);
+                    tileContainer.appendChild(tile);
+                }
+            }
+
+            // 컨테이너 위치 업데이트
+            tileContainer.style.left = `${-offsetX}px`;
+            tileContainer.style.top = `${-offsetY}px`;
+
+            document.getElementById('coords').textContent = 
+                `(${Math.floor(viewportTop / TILE_HEIGHT)}, ${Math.floor(viewportLeft / TILE_WIDTH)})`;
+        }
+
+        function constrainOffset() {
+            const maxOffsetX = Math.max(0, (MAX_TILES * TILE_WIDTH * scale) - window.innerWidth);
+            const maxOffsetY = Math.max(0, (MAX_TILES * TILE_HEIGHT * scale) - window.innerHeight);
+            
+            offsetX = Math.max(0, Math.min(offsetX, maxOffsetX));
+            offsetY = Math.max(0, Math.min(offsetY, maxOffsetY));
+        }
+
+        function move(direction) {
+            const moveAmount = (TILE_WIDTH * scale) / 2; // 이동량을 절반으로 줄임
+            switch(direction) {
+                case 'up': offsetY -= moveAmount; break;
+                case 'down': offsetY += moveAmount; break;
+                case 'left': offsetX -= moveAmount; break;
+                case 'right': offsetX += moveAmount; break;
+            }
+            updateMap();
+        }
+
+        function zoomAt(centerX, centerY, isZoomIn) {
+            // 줌 전 실제 좌표 계산
+            const beforeX = (centerX + offsetX) / scale;
+            const beforeY = (centerY + offsetY) / scale;
+
+            // 새 스케일 계산
+            const newScale = isZoomIn ? 
+                Math.min(scale * ZOOM_FACTOR, MAX_SCALE) : 
+                Math.max(scale / ZOOM_FACTOR, MIN_SCALE);
+            
+            if (newScale !== scale) {
+                scale = newScale;
+                
+                // 새 오프셋 계산
+                offsetX = (beforeX * scale) - centerX;
+                offsetY = (beforeY * scale) - centerY;
+                
+                updateMap();
+            }
+        }
+
+        // 마우스 드래그 이벤트 수정
+        let isDragging = false;
+        let lastX, lastY;
+
+        mapContainer.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            lastX = e.clientX;
+            lastY = e.clientY;
+        });
+
+        mapContainer.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const deltaX = e.clientX - lastX;
+                const deltaY = e.clientY - lastY;
+                
+                offsetX -= deltaX;
+                offsetY -= deltaY;
+                
+                lastX = e.clientX;
+                lastY = e.clientY;
+                
+                updateMap();
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // 줌 함수들
+        function zoomIn() {
+            zoomAt(window.innerWidth / 2, window.innerHeight / 2, true);
+        }
+
+        function zoomOut() {
+            zoomAt(window.innerWidth / 2, window.innerHeight / 2, false);
+        }
+
+        // 마우스 휠 이벤트
+        mapContainer.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const rect = mapContainer.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            zoomAt(mouseX, mouseY, e.deltaY < 0);
+        }, { passive: false });
+
+        // 초기 로드
+        updateMap();
+
+        // 창 크기 변경 시 업데이트
+        window.addEventListener('resize', updateMap);
+
+        function preloadTileImage(x, y) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = `/map_tile_data/tile_${x}_${y}.png`;
+            });
+        }
+
+        function getTileImage(x, y) {
+            const key = `${x}_${y}`;
+            if (!tileCache.has(key)) {
+                tileCache.set(key, preloadTileImage(x, y));
+            }
+            return tileCache.get(key);
+        }
+    </script>
+</body>
+</html>

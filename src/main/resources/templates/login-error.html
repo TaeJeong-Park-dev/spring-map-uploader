@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <title>Login Error</title>
+</head>
+<body>
+<h1>로그인 실패!</h1>
+<p th:text="${errorMessage}"></p>
+<a th:href="@{/login}">로그인으로 돌아가기</a>
+</body>
+</html>
