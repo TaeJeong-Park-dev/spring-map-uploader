@@ -114,6 +114,16 @@
             <div style="text-align: center;">
                 <button onclick="move('down')">↓</button>
             </div>
+            <div class="upload-controls">
+                <input type="file" id="tileFile" accept="image/png" style="display: none;">
+                <button onclick="document.getElementById('tileFile').click()">타일 업로드</button>
+                
+                <input type="file" id="zipFile" accept=".zip" style="display: none;">
+                <button onclick="document.getElementById('zipFile').click()">ZIP 파일 업로드</button>
+                
+                <input type="file" id="directoryInput" webkitdirectory directory multiple style="display: none;">
+                <button onclick="document.getElementById('directoryInput').click()">디렉토리 업로드</button>
+            </div>
         </div>
 
         <div class="zoom-controls">
@@ -298,6 +308,89 @@
             }
             return tileCache.get(key);
         }
+
+        // 파일 업로드 처리
+        document.getElementById('tileFile').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // 현재 보이는 영역의 중앙 타일 좌표 계산
+            const viewportCenterX = Math.floor((offsetX / scale + window.innerWidth / (2 * scale)) / TILE_WIDTH);
+            const viewportCenterY = Math.floor((offsetY / scale + window.innerHeight / (2 * scale)) / TILE_HEIGHT);
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('x', viewportCenterX);
+            formData.append('y', viewportCenterY);
+
+            try {
+                const response = await fetch('/mapviewer/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    alert('타일이 성공적으로 업로드되었습니다.');
+                    updateMap(); // 지도 새로고침
+                } else {
+                    alert('타일 업로드에 실패했습니다.');
+                }
+            } catch (error) {
+                alert('업로드 중 오류가 발생했습니다: ' + error);
+            }
+        });
+
+        // ZIP 파일 업로드
+        document.getElementById('zipFile').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/mapviewer/upload/zip', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    alert('ZIP 파일이 성공적으로 업로드되었습니다.');
+                    updateMap();
+                } else {
+                    alert('ZIP 파일 업로드에 실패했습니다.');
+                }
+            } catch (error) {
+                alert('업로드 중 오류가 발생했습니다: ' + error);
+            }
+        });
+
+        // 디렉토리 업로드
+        document.getElementById('directoryInput').addEventListener('change', async function(e) {
+            const files = e.target.files;
+            if (!files.length) return;
+
+            const formData = new FormData();
+            for (let file of files) {
+                formData.append('files', file);
+            }
+
+            try {
+                const response = await fetch('/mapviewer/upload/directory', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    alert('디렉토리가 성공적으로 업로드되었습니다.');
+                    updateMap();
+                } else {
+                    alert('디렉토리 업로드에 실패했습니다.');
+                }
+            } catch (error) {
+                alert('업로드 중 오류가 발생했습니다: ' + error);
+            }
+        });
     </script>
 </body>
 </html>
